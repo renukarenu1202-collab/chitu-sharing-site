@@ -221,10 +221,34 @@ export const PhotoShowcasePage: React.FC<PhotoShowcasePageProps> = ({
             {/* Recent Uploads Thumbnails Bar */}
             {allUploads.length > 1 && (
               <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
-                <h4 className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-1.5">
-                  <Layers className="w-4 h-4 text-blue-500" />
-                  <span>Other Uploaded & Linked Photos ({allUploads.length})</span>
-                </h4>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <Layers className="w-4 h-4 text-blue-500" />
+                    <span>All Bulk Uploaded & Linked Photos ({allUploads.length})</span>
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const allLinks = allUploads
+                        .map((u) => `${u.name}: ${u.publicShareUrl}`)
+                        .join('\n');
+                      copyText(allLinks, 'all_bulk_links');
+                    }}
+                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-semibold cursor-pointer flex items-center gap-1"
+                  >
+                    {copiedKey === 'all_bulk_links' ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Copied All {allUploads.length} Links!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Copy All {allUploads.length} Links</span>
+                      </>
+                    )}
+                  </button>
+                </div>
                 <div className="flex items-center gap-3 overflow-x-auto pb-1">
                   {allUploads.map((item) => (
                     <button

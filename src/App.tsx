@@ -434,14 +434,34 @@ export default function App() {
   };
 
   // Upload handlers
-  const handleUploadSuccess = (record: UploadedPhotoRecord, photoItem?: DrivePhotoItem) => {
+  const handleUploadSuccess = (
+    record: UploadedPhotoRecord,
+    photoItem?: DrivePhotoItem,
+    additionalItems?: Array<{ record: UploadedPhotoRecord; photoItem?: DrivePhotoItem }>
+  ) => {
     setUploadedRecords(getStoredUploads());
     setActiveShowcasePhoto(record);
     setCurrentView('showcase'); // Navigate to the separate dedicated page
-    if (photoItem) {
-      setPhotos((prev) => [photoItem, ...prev.filter((p) => p.id !== photoItem.id)]);
+
+    const newPhotosToAdd: DrivePhotoItem[] = [];
+    if (photoItem) newPhotosToAdd.push(photoItem);
+    if (additionalItems) {
+      additionalItems.forEach((item) => {
+        if (item.photoItem) newPhotosToAdd.push(item.photoItem);
+      });
     }
-    addToast('Photo ready! Now viewing on dedicated Showcase Page.');
+
+    if (newPhotosToAdd.length > 0) {
+      const addedIds = new Set(newPhotosToAdd.map((p) => p.id));
+      setPhotos((prev) => [...newPhotosToAdd, ...prev.filter((p) => !addedIds.has(p.id))]);
+    }
+
+    const totalCount = 1 + (additionalItems ? additionalItems.length : 0);
+    addToast(
+      totalCount > 1
+        ? `Successfully processed ${totalCount} photos with public links!`
+        : `Photo ready! Now viewing on dedicated Showcase Page.`
+    );
   };
 
   const handleDeleteUploadRecord = (id: string) => {

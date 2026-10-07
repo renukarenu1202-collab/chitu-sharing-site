@@ -217,6 +217,94 @@ export async function uploadFileToGoogleDrive(
 }
 
 /**
+ * Upload multiple local image files to Google Drive with progress callback
+ */
+export async function uploadBulkFilesToGoogleDrive(
+  files: File[],
+  makePublicOption = true,
+  onProgress?: (info: {
+    index: number;
+    total: number;
+    currentFileName: string;
+    percent: number;
+  }) => void
+): Promise<{
+  successful: Array<{ photoItem: DrivePhotoItem; record: UploadedPhotoRecord }>;
+  failed: Array<{ file: File; error: string }>;
+}> {
+  const successful: Array<{ photoItem: DrivePhotoItem; record: UploadedPhotoRecord }> = [];
+  const failed: Array<{ file: File; error: string }> = [];
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    if (onProgress) {
+      onProgress({
+        index: i + 1,
+        total: files.length,
+        currentFileName: file.name,
+        percent: Math.round(((i) / files.length) * 100),
+      });
+    }
+
+    try {
+      const result = await uploadFileToGoogleDrive(file, makePublicOption);
+      successful.push(result);
+    } catch (err: any) {
+      failed.push({ file, error: err?.message || 'Upload failed' });
+    }
+
+    if (onProgress) {
+      onProgress({
+        index: i + 1,
+        total: files.length,
+        currentFileName: file.name,
+        percent: Math.round(((i + 1) / files.length) * 100),
+      });
+    }
+  }
+
+  return { successful, failed };
+}
+
+/**
+ * Import multiple links (Google Drive, Google Photos, or image URLs)
+ */
+export async function importBulkLinks(
+  rawText: string
+): Promise<{
+  successful: UploadedPhotoRecord[];
+  failed: Array<{ url: string; error: string }>;
+}> {
+  const lines = rawText
+    .split(/[\n\r,]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && s.startsWith('http'));
+
+  if (lines.length === 0) {
+    throw new Error('No valid http/https URLs found to import.');
+  }
+
+  const successful: UploadedPhotoRecord[] = [];
+  const failed: Array<{ url: string; error: string }> = [];
+
+  for (const url of lines) {
+    try {
+      if (extractDriveFileId(url)) {
+        const res = await importFromDriveLink(url);
+        successful.push(res.record);
+      } else {
+        const res = await importFromGooglePhotosLink(url);
+        successful.push(res);
+      }
+    } catch (err: any) {
+      failed.push({ url, error: err?.message || 'Import failed' });
+    }
+  }
+
+  return { successful, failed };
+}
+
+/**
  * Import a photo using an existing Google Drive shareable link
  */
 export async function importFromDriveLink(
