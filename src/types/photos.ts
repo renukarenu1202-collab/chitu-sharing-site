@@ -58,5 +58,5 @@ export interface DrivePhotoItem {
 }
 
 export type ViewMode = 'grid' | 'compact' | 'list';
-export type FilterType = 'all' | 'public' | 'private';
+export type FilterType = 'all' | 'public' | 'private' | 'shared';
 export type SortOption = 'newest' | 'oldest' | 'name' | 'size';

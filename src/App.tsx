@@ -31,6 +31,7 @@ import { BatchActionBar } from './components/BatchActionBar';
 import { ToastContainer, ToastMessage } from './components/Toast';
 import { UploadModal } from './components/UploadModal';
 import { PhotoShowcasePage } from './components/PhotoShowcasePage';
+import { SharedFilesHub, UnifiedSharedItem } from './components/SharedFilesHub';
 import {
   getStoredUploads,
   removeStoredUpload,
@@ -467,6 +468,84 @@ export default function App() {
     setCurrentView('showcase');
   };
 
+  // Unified list of all shared files (Drive public files + uploaded/imported links)
+  const unifiedSharedItems: UnifiedSharedItem[] = useMemo(() => {
+    const list: UnifiedSharedItem[] = [];
+    const seenIds = new Set<string>();
+
+    // 1. Add all uploaded / imported shared records from Google Photos & Drive
+    uploadedRecords.forEach((rec) => {
+      list.push({
+        id: rec.id,
+        name: rec.name,
+        shareUrl: rec.publicShareUrl,
+        previewUrl: rec.previewUrl,
+        sourceType: rec.sourceType,
+        isPublic: rec.isPublic,
+        dateAdded: rec.uploadedAt,
+        uploadRecord: rec,
+      });
+      if (rec.driveFileId) seenIds.add(rec.driveFileId);
+    });
+
+    // 2. Add all Drive photos with public link or sharing active
+    photos.forEach((photo) => {
+      if ((photo.isPublic || photo.shared) && !seenIds.has(photo.id)) {
+        list.push({
+          id: photo.id,
+          name: photo.name,
+          shareUrl: getPublicViewerUrl(photo.id),
+          previewUrl:
+            photo.thumbnailLink?.replace(/=s\d+$/, '=s600') ||
+            `https://lh3.googleusercontent.com/d/${photo.id}=w800`,
+          sourceType: 'drive_public',
+          isPublic: !!photo.isPublic,
+          dateAdded: photo.createdTime,
+          driveItem: photo,
+        });
+        seenIds.add(photo.id);
+      }
+    });
+
+    return list;
+  }, [uploadedRecords, photos]);
+
+  const handleOpenShowcaseFromHub = (item: UnifiedSharedItem) => {
+    if (item.uploadRecord) {
+      setActiveShowcasePhoto(item.uploadRecord);
+      setCurrentView('showcase');
+    } else if (item.driveItem) {
+      const record: UploadedPhotoRecord = {
+        id: `drive-showcase-${item.id}`,
+        sourceType: 'drive_link',
+        name: item.name,
+        originalUrl: item.shareUrl,
+        publicShareUrl: item.shareUrl,
+        previewUrl: item.previewUrl,
+        mimeType: item.driveItem.mimeType,
+        uploadedAt: item.dateAdded || new Date().toISOString(),
+        driveFileId: item.id,
+        isPublic: item.isPublic,
+      };
+      setActiveShowcasePhoto(record);
+      setCurrentView('showcase');
+    } else {
+      const record: UploadedPhotoRecord = {
+        id: item.id,
+        sourceType: item.sourceType,
+        name: item.name,
+        originalUrl: item.shareUrl,
+        publicShareUrl: item.shareUrl,
+        previewUrl: item.previewUrl,
+        mimeType: 'image/jpeg',
+        uploadedAt: item.dateAdded || new Date().toISOString(),
+        isPublic: item.isPublic,
+      };
+      setActiveShowcasePhoto(record);
+      setCurrentView('showcase');
+    }
+  };
+
   // Filter & Sort calculation
   const filteredAndSortedPhotos = useMemo(() => {
     let result = [...photos];
@@ -483,11 +562,11 @@ export default function App() {
       );
     }
 
-    // Public / Private tab filter
-    if (filterType === 'public') {
-      result = result.filter((p) => p.isPublic);
+    // Public / Shared / Private tab filter
+    if (filterType === 'public' || filterType === 'shared') {
+      result = result.filter((p) => p.isPublic || p.shared);
     } else if (filterType === 'private') {
-      result = result.filter((p) => !p.isPublic);
+      result = result.filter((p) => !p.isPublic && !p.shared);
     }
 
     // Sort order
@@ -568,10 +647,19 @@ export default function App() {
         uploadedCount={uploadedRecords.length}
         isRefreshing={isRefreshing}
         totalPhotos={photos.length}
-        publicPhotosCount={publicCount}
+        publicPhotosCount={unifiedSharedItems.length}
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* Prominent Shared Files & Public Links Hub right at the top of the home page */}
+        <SharedFilesHub
+          sharedItems={unifiedSharedItems}
+          onOpenShowcase={handleOpenShowcaseFromHub}
+          onOpenShareModal={(p) => setSharePhoto(p)}
+          onOpenUploadModal={() => setIsUploadModalOpen(true)}
+          onCopySuccess={(msg) => addToast(msg, 'success')}
+        />
+
         {/* Controls Bar: Filter tabs, Sort dropdown, View toggle */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
           {/* Filter Pills */}
@@ -591,13 +679,13 @@ export default function App() {
               type="button"
               onClick={() => setFilterType('public')}
               className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                filterType === 'public'
+                filterType === 'public' || filterType === 'shared'
                   ? 'bg-emerald-600 text-white shadow-xs'
                   : 'text-slate-600 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400'
               }`}
             >
               <Globe className="w-3.5 h-3.5" />
-              <span>Public Links ({publicCount})</span>
+              <span>Shared & Public ({unifiedSharedItems.length})</span>
             </button>
             <button
               type="button"

@@ -7,7 +7,12 @@ const DRIVE_UPLOAD_BASE = 'https://www.googleapis.com/upload/drive/v3';
 
 export interface UploadedPhotoRecord {
   id: string;
-  sourceType: 'drive_upload' | 'drive_link' | 'google_photos_link' | 'custom_link';
+  sourceType:
+    | 'drive_upload'
+    | 'drive_link'
+    | 'google_photos_link'
+    | 'custom_link'
+    | 'drive_public';
   name: string;
   originalUrl: string;
   publicShareUrl: string;

@@ -71,6 +71,7 @@ export const PhotoShowcasePage: React.FC<PhotoShowcasePageProps> = ({
   const sourceLabel = {
     drive_upload: 'Direct Google Drive Upload',
     drive_link: 'Google Drive Shared Link',
+    drive_public: 'Public Google Drive Photo',
     google_photos_link: 'Google Photos Shared Link',
     custom_link: 'Web Image Link',
   }[photo.sourceType];
