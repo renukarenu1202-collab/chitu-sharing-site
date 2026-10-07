@@ -1,0 +1,6 @@
+{
+  "name": "Google Photos & Drive Public Share Gallery",
+  "description": "Browse all your Google Photos and Drive images, generate instant public shareable links, and inspect photo metadata.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
