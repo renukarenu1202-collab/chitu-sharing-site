@@ -19,10 +19,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin, isLoading, error 
         </div>
 
         <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white sm:text-4xl mb-3">
-          Photos & Drive Share Gallery
+          Public Link Generator
         </h1>
         <p className="text-sm text-slate-600 dark:text-slate-400 mb-8 max-w-sm mx-auto leading-relaxed">
-          Access all your Google Photos and Drive images, generate instant public shareable links, and preview high-res metadata.
+          Bulk upload images, PDFs, and documents or import shared links to generate instant public viewable links.
         </p>
 
         {/* Feature cards preview */}
@@ -33,10 +33,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin, isLoading, error 
             </div>
             <div>
               <h3 className="text-xs font-semibold text-slate-900 dark:text-slate-100">
-                1-Click Public Shareable Links
+                Bulk Upload: Images, PDFs & Docs
               </h3>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Make any image viewable by anyone with the link without signing in.
+                Upload multiple files or paste links to get public links for all of them at once.
               </p>
             </div>
           </div>

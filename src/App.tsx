@@ -32,9 +32,13 @@ import { ToastContainer, ToastMessage } from './components/Toast';
 import { UploadModal } from './components/UploadModal';
 import { PhotoShowcasePage } from './components/PhotoShowcasePage';
 import { SharedFilesHub, UnifiedSharedItem } from './components/SharedFilesHub';
+import { BulkUploadPanel } from './components/BulkUploadPanel';
+import { UploadedFilesHub } from './components/UploadedFilesHub';
 import {
   getStoredUploads,
   removeStoredUpload,
+  clearAllStoredUploads,
+  getFileCategory,
   UploadedPhotoRecord,
 } from './services/upload';
 import {
@@ -464,6 +468,27 @@ export default function App() {
     );
   };
 
+  const handleBulkUploadSuccess = (
+    records: UploadedPhotoRecord[],
+    photoItems?: DrivePhotoItem[]
+  ) => {
+    const updated = getStoredUploads();
+    setUploadedRecords(updated);
+    if (photoItems && photoItems.length > 0) {
+      const addedIds = new Set(photoItems.map((p) => p.id));
+      setPhotos((prev) => [...photoItems, ...prev.filter((p) => !addedIds.has(p.id))]);
+    }
+    addToast(
+      `Successfully generated public viewable links for ${records.length} file${records.length > 1 ? 's' : ''}!`
+    );
+  };
+
+  const handleClearAllUploads = () => {
+    clearAllStoredUploads();
+    setUploadedRecords([]);
+    addToast('Cleared all uploaded files.', 'info');
+  };
+
   const handleDeleteUploadRecord = (id: string) => {
     removeStoredUpload(id);
     const updated = getStoredUploads();
@@ -476,7 +501,7 @@ export default function App() {
         setCurrentView('gallery');
       }
     }
-    addToast('Removed from showcase.', 'info');
+    addToast('Removed file.', 'info');
   };
 
   const handleViewShowcase = (record?: UploadedPhotoRecord) => {
@@ -538,6 +563,7 @@ export default function App() {
       const record: UploadedPhotoRecord = {
         id: `drive-showcase-${item.id}`,
         sourceType: 'drive_link',
+        category: getFileCategory(item.name, item.driveItem.mimeType),
         name: item.name,
         originalUrl: item.shareUrl,
         publicShareUrl: item.shareUrl,
@@ -553,6 +579,7 @@ export default function App() {
       const record: UploadedPhotoRecord = {
         id: item.id,
         sourceType: item.sourceType,
+        category: getFileCategory(item.name, 'image/jpeg'),
         name: item.name,
         originalUrl: item.shareUrl,
         publicShareUrl: item.shareUrl,
@@ -671,267 +698,81 @@ export default function App() {
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* Prominent Shared Files & Public Links Hub right at the top of the home page */}
-        <SharedFilesHub
-          sharedItems={unifiedSharedItems}
-          onOpenShowcase={handleOpenShowcaseFromHub}
-          onOpenShareModal={(p) => setSharePhoto(p)}
-          onOpenUploadModal={() => setIsUploadModalOpen(true)}
+        {/* Core 2 Options Panel: Bulk Device Upload (Images, PDFs, Docs) & Bulk Links Import */}
+        <BulkUploadPanel
+          onSuccess={handleBulkUploadSuccess}
+          onError={(msg) => addToast(msg, 'error')}
+        />
+
+        {/* Uploaded Files with Public Viewable Links shown directly on the Home / Landing Page */}
+        <UploadedFilesHub
+          files={uploadedRecords}
+          onDeleteFile={handleDeleteUploadRecord}
+          onClearAll={handleClearAllUploads}
           onCopySuccess={(msg) => addToast(msg, 'success')}
         />
 
-        {/* Controls Bar: Filter tabs, Sort dropdown, View toggle */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
-          {/* Filter Pills */}
-          <div className="flex items-center gap-1.5 p-1 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
-            <button
-              type="button"
-              onClick={() => setFilterType('all')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                filterType === 'all'
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
-              }`}
-            >
-              All Photos ({photos.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setFilterType('public')}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                filterType === 'public' || filterType === 'shared'
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400'
-              }`}
-            >
-              <Globe className="w-3.5 h-3.5" />
-              <span>Shared & Public ({unifiedSharedItems.length})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setFilterType('private')}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                filterType === 'private'
-                  ? 'bg-slate-800 dark:bg-slate-700 text-white shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
-              }`}
-            >
-              <Lock className="w-3.5 h-3.5" />
-              <span>Private ({privateCount})</span>
-            </button>
-          </div>
+        {/* Existing Google Drive Library (Collapsible / Secondary) */}
+        {photos.length > 0 && (
+          <div className="pt-6 border-t border-slate-200 dark:border-slate-800">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">
+                  Google Drive & Photos Cloud Files
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Existing images detected in your connected Google Drive ({photos.length} files)
+                </p>
+              </div>
 
-          {/* Right actions: Sorting & View mode */}
-          <div className="flex items-center gap-2.5 w-full sm:w-auto justify-between sm:justify-end">
-            {/* Sort Dropdown */}
-            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 text-xs shadow-2xs">
-              <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
-              <select
-                value={sortOption}
-                onChange={(e) => setSortOption(e.target.value as SortOption)}
-                aria-label="Sort photos by"
-                className="bg-transparent border-none text-slate-700 dark:text-slate-300 focus:outline-none font-medium cursor-pointer"
-              >
-                <option value="newest">Newest First</option>
-                <option value="oldest">Oldest First</option>
-                <option value="name">Name (A-Z)</option>
-                <option value="size">File Size</option>
-              </select>
+              {/* Controls Bar: Filter tabs, Sort dropdown */}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 p-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 text-xs shadow-2xs">
+                  <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
+                  <select
+                    value={sortOption}
+                    onChange={(e) => setSortOption(e.target.value as SortOption)}
+                    aria-label="Sort photos by"
+                    className="bg-transparent border-none text-slate-700 dark:text-slate-300 focus:outline-none font-medium cursor-pointer"
+                  >
+                    <option value="newest">Newest First</option>
+                    <option value="oldest">Oldest First</option>
+                    <option value="name">Name (A-Z)</option>
+                    <option value="size">File Size</option>
+                  </select>
+                </div>
+              </div>
             </div>
 
-            {/* View Mode Toggle */}
-            <div className="flex items-center p-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
-              <button
-                type="button"
-                onClick={() => setViewMode('grid')}
-                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                  viewMode === 'grid'
-                    ? 'bg-slate-100 dark:bg-slate-800 text-blue-600 dark:text-blue-400'
-                    : 'text-slate-400 hover:text-slate-600'
-                }`}
-                title="Grid View"
-              >
-                <Grid className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('compact')}
-                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                  viewMode === 'compact'
-                    ? 'bg-slate-100 dark:bg-slate-800 text-blue-600 dark:text-blue-400'
-                    : 'text-slate-400 hover:text-slate-600'
-                }`}
-                title="Compact Grid"
-              >
-                <LayoutGrid className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('list')}
-                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                  viewMode === 'list'
-                    ? 'bg-slate-100 dark:bg-slate-800 text-blue-600 dark:text-blue-400'
-                    : 'text-slate-400 hover:text-slate-600'
-                }`}
-                title="List View"
-              >
-                <List className="w-4 h-4" />
-              </button>
+            {/* Photos Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+              {filteredAndSortedPhotos.slice(0, 15).map((photo) => (
+                <PhotoCard
+                  key={photo.id}
+                  photo={photo}
+                  isSelected={selectedIds.has(photo.id)}
+                  onToggleSelect={handleToggleSelect}
+                  onClick={(p) => {
+                    const idx = filteredAndSortedPhotos.findIndex((item) => item.id === p.id);
+                    setLightboxIndex(idx);
+                  }}
+                  onShare={(p, e) => {
+                    e.stopPropagation();
+                    setSharePhoto(p);
+                  }}
+                  onRequestMakePublic={handleRequestMakePublic}
+                />
+              ))}
             </div>
-          </div>
-        </div>
 
-        {/* Loading Skeleton */}
-        {isLoading && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-            {Array.from({ length: 15 }).map((_, i) => (
-              <div
-                key={i}
-                className="aspect-4/3 rounded-2xl bg-slate-200 dark:bg-slate-800/60 animate-pulse border border-slate-200/60 dark:border-slate-800"
-              />
-            ))}
-          </div>
-        )}
-
-        {/* Error State */}
-        {!isLoading && fetchError && (
-          <div className="max-w-md mx-auto my-16 p-6 bg-white dark:bg-slate-900 rounded-3xl border border-rose-200 dark:border-rose-900/60 shadow-lg text-center">
-            <div className="w-12 h-12 mx-auto mb-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 flex items-center justify-center">
-              <AlertCircle className="w-6 h-6" />
-            </div>
-            <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100 mb-1">
-              Could not load images
-            </h3>
-            <p className="text-xs text-slate-600 dark:text-slate-400 mb-5 leading-relaxed">
-              {fetchError}
-            </p>
-            <button
-              type="button"
-              onClick={() => loadPhotos(true)}
-              className="px-5 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs transition-colors cursor-pointer"
-            >
-              Try Again
-            </button>
-          </div>
-        )}
-
-        {/* Empty State */}
-        {!isLoading && !fetchError && filteredAndSortedPhotos.length === 0 && (
-          <div className="max-w-md mx-auto my-16 p-8 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm text-center">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-3xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 flex items-center justify-center">
-              <ImageIcon className="w-8 h-8" />
-            </div>
-            <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 mb-1">
-              {searchQuery ? 'No matching photos found' : 'No photos found in Google Photos/Drive'}
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
-              {searchQuery
-                ? `No images matched "${searchQuery}". Try searching with a different term.`
-                : 'Upload some images to Google Drive or Google Photos, then click refresh to view and generate shareable links.'}
-            </p>
-            {searchQuery ? (
-              <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                className="px-4 py-2 text-xs font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl transition-colors cursor-pointer"
-              >
-                Clear Search
-              </button>
-            ) : (
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setIsUploadModalOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-5 py-2.5 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs transition-colors cursor-pointer"
-                >
-                  <Upload className="w-4 h-4" />
-                  <span>Upload or Import Photo Link</span>
-                </button>
-                <a
-                  href="https://photos.google.com"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl transition-colors"
-                >
-                  <span>Open Google Photos</span>
-                  <ExternalLink className="w-3.5 h-3.5" />
-                </a>
+            {filteredAndSortedPhotos.length > 15 && (
+              <div className="mt-4 text-center">
+                <span className="text-xs text-slate-400">
+                  Showing 15 of {filteredAndSortedPhotos.length} Drive files
+                </span>
               </div>
             )}
           </div>
-        )}
-
-        {/* Photos Grid / List View */}
-        {!isLoading && !fetchError && filteredAndSortedPhotos.length > 0 && (
-          <>
-            {viewMode === 'list' ? (
-              <PhotoList
-                photos={filteredAndSortedPhotos}
-                selectedIds={selectedIds}
-                onToggleSelect={handleToggleSelect}
-                onClick={(photo) => {
-                  const idx = filteredAndSortedPhotos.findIndex((p) => p.id === photo.id);
-                  setLightboxIndex(idx);
-                }}
-                onShare={(photo, e) => {
-                  e.stopPropagation();
-                  setSharePhoto(photo);
-                }}
-                onRequestMakePublic={handleRequestMakePublic}
-                onRequestRevokePublic={handleRequestRevokePublic}
-              />
-            ) : (
-              <div
-                className={`grid gap-4 ${
-                  viewMode === 'compact'
-                    ? 'grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6'
-                    : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'
-                }`}
-              >
-                {filteredAndSortedPhotos.map((photo) => (
-                  <PhotoCard
-                    key={photo.id}
-                    photo={photo}
-                    isSelected={selectedIds.has(photo.id)}
-                    onToggleSelect={handleToggleSelect}
-                    onClick={(p) => {
-                      const idx = filteredAndSortedPhotos.findIndex((item) => item.id === p.id);
-                      setLightboxIndex(idx);
-                    }}
-                    onShare={(p, e) => {
-                      e.stopPropagation();
-                      setSharePhoto(p);
-                    }}
-                    onRequestMakePublic={handleRequestMakePublic}
-                  />
-                ))}
-              </div>
-            )}
-
-            {/* Pagination / Load more */}
-            {nextPageToken && (
-              <div className="mt-10 mb-8 flex justify-center">
-                <button
-                  type="button"
-                  onClick={handleLoadMore}
-                  disabled={isLoadingMore}
-                  className="px-6 py-2.5 text-xs font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 text-slate-800 dark:text-slate-200 rounded-2xl shadow-xs transition-all cursor-pointer flex items-center gap-2 disabled:opacity-60"
-                >
-                  {isLoadingMore ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-slate-400 border-t-blue-600 rounded-full animate-spin" />
-                      <span>Loading more photos...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="w-4 h-4 text-blue-600" />
-                      <span>Load More Photos</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            )}
-          </>
         )}
       </main>
 

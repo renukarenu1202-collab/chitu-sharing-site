@@ -5,6 +5,37 @@ import { parsePhotoItem, makeFilePublic, getPublicViewerUrl } from './drive';
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3';
 const DRIVE_UPLOAD_BASE = 'https://www.googleapis.com/upload/drive/v3';
 
+export type FileCategory = 'image' | 'pdf' | 'document' | 'other';
+
+export function getFileCategory(name: string, mimeType = ''): FileCategory {
+  const ext = name.split('.').pop()?.toLowerCase() || '';
+  const mime = mimeType.toLowerCase();
+
+  if (
+    mime.startsWith('image/') ||
+    ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico', 'heic', 'tiff'].includes(ext)
+  ) {
+    return 'image';
+  }
+
+  if (mime.includes('pdf') || ext === 'pdf') {
+    return 'pdf';
+  }
+
+  if (
+    mime.includes('word') ||
+    mime.includes('officedocument') ||
+    mime.includes('text/') ||
+    mime.includes('document') ||
+    mime.includes('opendocument') ||
+    ['doc', 'docx', 'txt', 'rtf', 'odt', 'md', 'csv', 'pages'].includes(ext)
+  ) {
+    return 'document';
+  }
+
+  return 'other';
+}
+
 export interface UploadedPhotoRecord {
   id: string;
   sourceType:
@@ -13,6 +44,7 @@ export interface UploadedPhotoRecord {
     | 'google_photos_link'
     | 'custom_link'
     | 'drive_public';
+  category: FileCategory;
   name: string;
   originalUrl: string;
   publicShareUrl: string;
@@ -58,6 +90,14 @@ export function removeStoredUpload(id: string): void {
   }
 }
 
+export function clearAllStoredUploads(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch (err) {
+    console.warn('Could not clear localStorage', err);
+  }
+}
+
 /**
  * Extracts Google Drive File ID from various URL formats
  */
@@ -68,11 +108,15 @@ export function extractDriveFileId(url: string): string | null {
   const matchFileD = cleanUrl.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
   if (matchFileD && matchFileD[1]) return matchFileD[1];
 
-  // Pattern 2: https://drive.google.com/open?id={id} or uc?id={id}
+  // Pattern 2: https://docs.google.com/document/d/{id} or spreadsheets/d/{id}
+  const matchDocD = cleanUrl.match(/\/(document|spreadsheets|presentation)\/d\/([a-zA-Z0-9_-]+)/);
+  if (matchDocD && matchDocD[2]) return matchDocD[2];
+
+  // Pattern 3: https://drive.google.com/open?id={id} or uc?id={id}
   const matchIdParam = cleanUrl.match(/[?&]id=([a-zA-Z0-9_-]+)/);
   if (matchIdParam && matchIdParam[1]) return matchIdParam[1];
 
-  // Pattern 3: direct ID string (alphanumeric with underscores/dashes, min length 25)
+  // Pattern 4: direct alphanumeric ID string
   if (/^[a-zA-Z0-9_-]{25,}$/.test(cleanUrl)) {
     return cleanUrl;
   }
@@ -94,23 +138,25 @@ export function isGooglePhotosUrl(url: string): boolean {
 }
 
 /**
- * Upload a local image file directly to Google Drive using multipart upload
+ * Upload an image, PDF, or document file directly to Google Drive using multipart upload
  */
 export async function uploadFileToGoogleDrive(
   file: File,
-  makePublicOption = true,
-  onProgress?: (percent: number) => void
+  makePublicOption = true
 ): Promise<{ photoItem: DrivePhotoItem; record: UploadedPhotoRecord }> {
   const token = await getAccessToken();
   if (!token) {
-    throw new Error('You must be signed in with Google to upload photos to Drive.');
+    throw new Error('Please sign in with Google to upload files to Google Drive.');
   }
+
+  const category = getFileCategory(file.name, file.type);
+  const detectedMime = file.type || (category === 'pdf' ? 'application/pdf' : 'application/octet-stream');
 
   // 1. Prepare metadata
   const metadata = {
     name: file.name,
-    mimeType: file.type || 'image/jpeg',
-    description: 'Uploaded via Photos Share Gallery with public link',
+    mimeType: detectedMime,
+    description: 'Uploaded via Public Link Generator',
   };
 
   // 2. Build multipart body
@@ -130,7 +176,7 @@ export async function uploadFileToGoogleDrive(
     metadata
   )}\r\n`;
 
-  const mediaHeader = `${delimiter}Content-Type: ${file.type || 'image/jpeg'}\r\n\r\n`;
+  const mediaHeader = `${delimiter}Content-Type: ${detectedMime}\r\n\r\n`;
 
   const textEncoder = new TextEncoder();
   const metadataBytes = textEncoder.encode(metadataPart);
@@ -172,13 +218,13 @@ export async function uploadFileToGoogleDrive(
 
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData?.error?.message || `Failed to upload image (${res.status})`);
+    throw new Error(errorData?.error?.message || `Failed to upload file (${res.status})`);
   }
 
   const fileData = await res.json();
   const photoItem = parsePhotoItem(fileData);
 
-  // 4. Optionally make publicly accessible immediately
+  // 4. Automatically make publicly accessible
   let isPublic = false;
   let publicUrl = photoItem.webViewLink || getPublicViewerUrl(photoItem.id);
 
@@ -192,17 +238,26 @@ export async function uploadFileToGoogleDrive(
     }
   }
 
+  // Choose appropriate preview thumbnail based on file type
+  let previewUrl = photoItem.thumbnailLink || '';
+  if (!previewUrl) {
+    if (category === 'image') {
+      previewUrl = `https://lh3.googleusercontent.com/d/${photoItem.id}=w1200`;
+    } else {
+      previewUrl = `https://drive.google.com/thumbnail?id=${photoItem.id}&sz=w600`;
+    }
+  }
+
   const record: UploadedPhotoRecord = {
     id: `upload-${photoItem.id}`,
     sourceType: 'drive_upload',
+    category,
     name: photoItem.name,
     originalUrl: photoItem.webViewLink || publicUrl,
     publicShareUrl: publicUrl,
-    previewUrl:
-      photoItem.thumbnailLink ||
-      `https://lh3.googleusercontent.com/d/${photoItem.id}=w1600`,
+    previewUrl,
     downloadUrl: photoItem.webContentLink,
-    mimeType: photoItem.mimeType,
+    mimeType: detectedMime,
     size: file.size,
     width: photoItem.imageMediaMetadata?.width,
     height: photoItem.imageMediaMetadata?.height,
@@ -217,7 +272,7 @@ export async function uploadFileToGoogleDrive(
 }
 
 /**
- * Upload multiple local image files to Google Drive with progress callback
+ * Upload multiple local files (images, pdfs, docs) to Google Drive with progress callback
  */
 export async function uploadBulkFilesToGoogleDrive(
   files: File[],
@@ -267,6 +322,112 @@ export async function uploadBulkFilesToGoogleDrive(
 }
 
 /**
+ * Import a file using an existing Google Drive shareable link
+ */
+export async function importFromDriveLink(
+  driveLink: string
+): Promise<{ photoItem?: DrivePhotoItem; record: UploadedPhotoRecord }> {
+  const fileId = extractDriveFileId(driveLink);
+  if (!fileId) {
+    throw new Error('Invalid Google Drive link. Please enter a valid drive.google.com link.');
+  }
+
+  const token = await getAccessToken();
+  const publicUrl = `https://drive.google.com/file/d/${fileId}/view?usp=sharing`;
+  const directCdnUrl = `https://drive.google.com/thumbnail?id=${fileId}&sz=w800`;
+
+  let name = `Google Drive File (${fileId.slice(0, 8)})`;
+  let mimeType = 'application/octet-stream';
+  let size: string | undefined = undefined;
+  let width: number | undefined = undefined;
+  let height: number | undefined = undefined;
+  let isPublic = true;
+  let photoItem: DrivePhotoItem | undefined = undefined;
+
+  if (token) {
+    try {
+      const res = await fetch(
+        `${DRIVE_API_BASE}/files/${fileId}?fields=id,name,mimeType,description,webViewLink,webContentLink,thumbnailLink,iconLink,createdTime,modifiedTime,size,imageMediaMetadata,shared,permissions(id,type,role),owners(displayName,emailAddress,photoLink)`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      if (res.ok) {
+        const data = await res.json();
+        photoItem = parsePhotoItem(data);
+        name = photoItem.name;
+        mimeType = photoItem.mimeType;
+        size = photoItem.size;
+        width = photoItem.imageMediaMetadata?.width;
+        height = photoItem.imageMediaMetadata?.height;
+        isPublic = !!photoItem.isPublic;
+      }
+    } catch {
+      // Continue if item belongs to outside domain
+    }
+  }
+
+  const category = getFileCategory(name, mimeType);
+
+  const record: UploadedPhotoRecord = {
+    id: `drive-link-${fileId}`,
+    sourceType: 'drive_link',
+    category,
+    name,
+    originalUrl: driveLink.trim(),
+    publicShareUrl: publicUrl,
+    previewUrl: directCdnUrl,
+    downloadUrl: `https://drive.google.com/uc?export=download&id=${fileId}`,
+    mimeType,
+    size,
+    width,
+    height,
+    uploadedAt: new Date().toISOString(),
+    driveFileId: fileId,
+    isPublic,
+  };
+
+  saveStoredUpload(record);
+
+  return { photoItem, record };
+}
+
+/**
+ * Import a photo using a Google Photos shared public link
+ */
+export async function importFromGooglePhotosLink(
+  photosUrl: string,
+  customTitle?: string
+): Promise<UploadedPhotoRecord> {
+  const cleanUrl = photosUrl.trim();
+  if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+    throw new Error('Please enter a valid link starting with https://');
+  }
+
+  const id = `gphotos-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  const title =
+    customTitle?.trim() ||
+    `Google Photos Album (${new Date().toLocaleDateString()})`;
+
+  const record: UploadedPhotoRecord = {
+    id,
+    sourceType: 'google_photos_link',
+    category: 'image',
+    name: title,
+    originalUrl: cleanUrl,
+    publicShareUrl: cleanUrl,
+    previewUrl: cleanUrl,
+    mimeType: 'image/jpeg',
+    uploadedAt: new Date().toISOString(),
+    isPublic: true,
+  };
+
+  saveStoredUpload(record);
+  return record;
+}
+
+/**
  * Import multiple links (Google Drive, Google Photos, or image URLs)
  */
 export async function importBulkLinks(
@@ -302,109 +463,4 @@ export async function importBulkLinks(
   }
 
   return { successful, failed };
-}
-
-/**
- * Import a photo using an existing Google Drive shareable link
- */
-export async function importFromDriveLink(
-  driveLink: string
-): Promise<{ photoItem?: DrivePhotoItem; record: UploadedPhotoRecord }> {
-  const fileId = extractDriveFileId(driveLink);
-  if (!fileId) {
-    throw new Error('Invalid Google Drive link. Please enter a valid drive.google.com link.');
-  }
-
-  const token = await getAccessToken();
-  const publicUrl = `https://drive.google.com/file/d/${fileId}/view?usp=sharing`;
-  const directCdnUrl = `https://lh3.googleusercontent.com/d/${fileId}=w1600`;
-
-  let name = `Google Drive Photo (${fileId.slice(0, 8)})`;
-  let mimeType = 'image/jpeg';
-  let size: string | undefined = undefined;
-  let width: number | undefined = undefined;
-  let height: number | undefined = undefined;
-  let isPublic = true;
-  let photoItem: DrivePhotoItem | undefined = undefined;
-
-  // If user has token, query Drive API for rich details
-  if (token) {
-    try {
-      const res = await fetch(
-        `${DRIVE_API_BASE}/files/${fileId}?fields=id,name,mimeType,description,webViewLink,webContentLink,thumbnailLink,iconLink,createdTime,modifiedTime,size,imageMediaMetadata,shared,permissions(id,type,role),owners(displayName,emailAddress,photoLink)`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-
-      if (res.ok) {
-        const data = await res.json();
-        photoItem = parsePhotoItem(data);
-        name = photoItem.name;
-        mimeType = photoItem.mimeType;
-        size = photoItem.size;
-        width = photoItem.imageMediaMetadata?.width;
-        height = photoItem.imageMediaMetadata?.height;
-        isPublic = !!photoItem.isPublic;
-      }
-    } catch {
-      // Continue with standard link format if API fails or item belongs to external account
-    }
-  }
-
-  const record: UploadedPhotoRecord = {
-    id: `drive-link-${fileId}`,
-    sourceType: 'drive_link',
-    name,
-    originalUrl: driveLink.trim(),
-    publicShareUrl: publicUrl,
-    previewUrl: directCdnUrl,
-    downloadUrl: `https://drive.google.com/uc?export=download&id=${fileId}`,
-    mimeType,
-    size,
-    width,
-    height,
-    uploadedAt: new Date().toISOString(),
-    driveFileId: fileId,
-    isPublic,
-  };
-
-  saveStoredUpload(record);
-
-  return { photoItem, record };
-}
-
-/**
- * Import a photo using a Google Photos shared public link
- */
-export async function importFromGooglePhotosLink(
-  photosUrl: string,
-  customTitle?: string
-): Promise<UploadedPhotoRecord> {
-  const cleanUrl = photosUrl.trim();
-  if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
-    throw new Error('Please enter a valid link starting with https://');
-  }
-
-  // Create a record for the Google Photos shared link
-  const id = `gphotos-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-  const title =
-    customTitle?.trim() ||
-    `Google Photos Album/Photo (${new Date().toLocaleDateString()})`;
-
-  const record: UploadedPhotoRecord = {
-    id,
-    sourceType: 'google_photos_link',
-    name: title,
-    originalUrl: cleanUrl,
-    publicShareUrl: cleanUrl,
-    // Google Photos shared links redirect or display directly
-    previewUrl: cleanUrl,
-    mimeType: 'image/jpeg',
-    uploadedAt: new Date().toISOString(),
-    isPublic: true,
-  };
-
-  saveStoredUpload(record);
-  return record;
 }

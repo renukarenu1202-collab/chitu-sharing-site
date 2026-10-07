@@ -58,10 +58,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             <div className="hidden sm:block">
               <h1 className="text-base font-bold text-slate-900 dark:text-white leading-tight">
-                Photos Share Gallery
+                Public Link Generator
               </h1>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Google Photos & Drive Links
+                Images, PDFs & Documents
               </p>
             </div>
           </div>
