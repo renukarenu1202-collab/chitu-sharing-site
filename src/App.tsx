@@ -29,6 +29,13 @@ import { ShareModal } from './components/ShareModal';
 import { ConfirmationModal, ConfirmationModalConfig } from './components/ConfirmationModal';
 import { BatchActionBar } from './components/BatchActionBar';
 import { ToastContainer, ToastMessage } from './components/Toast';
+import { UploadModal } from './components/UploadModal';
+import { PhotoShowcasePage } from './components/PhotoShowcasePage';
+import {
+  getStoredUploads,
+  removeStoredUpload,
+  UploadedPhotoRecord,
+} from './services/upload';
 import {
   Globe,
   Lock,
@@ -42,6 +49,8 @@ import {
   RefreshCw,
   Plus,
   ExternalLink,
+  Upload,
+  Sparkles,
 } from 'lucide-react';
 
 export default function App() {
@@ -65,6 +74,14 @@ export default function App() {
   const [sortOption, setSortOption] = useState<SortOption>('newest');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Upload & Showcase Page state
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [uploadedRecords, setUploadedRecords] = useState<UploadedPhotoRecord[]>(() =>
+    getStoredUploads()
+  );
+  const [activeShowcasePhoto, setActiveShowcasePhoto] = useState<UploadedPhotoRecord | null>(null);
+  const [currentView, setCurrentView] = useState<'gallery' | 'showcase'>('gallery');
 
   // Modals state
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -415,6 +432,41 @@ export default function App() {
     });
   };
 
+  // Upload handlers
+  const handleUploadSuccess = (record: UploadedPhotoRecord, photoItem?: DrivePhotoItem) => {
+    setUploadedRecords(getStoredUploads());
+    setActiveShowcasePhoto(record);
+    setCurrentView('showcase'); // Navigate to the separate dedicated page
+    if (photoItem) {
+      setPhotos((prev) => [photoItem, ...prev.filter((p) => p.id !== photoItem.id)]);
+    }
+    addToast('Photo ready! Now viewing on dedicated Showcase Page.');
+  };
+
+  const handleDeleteUploadRecord = (id: string) => {
+    removeStoredUpload(id);
+    const updated = getStoredUploads();
+    setUploadedRecords(updated);
+    if (activeShowcasePhoto?.id === id) {
+      if (updated.length > 0) {
+        setActiveShowcasePhoto(updated[0]);
+      } else {
+        setActiveShowcasePhoto(null);
+        setCurrentView('gallery');
+      }
+    }
+    addToast('Removed from showcase.', 'info');
+  };
+
+  const handleViewShowcase = (record?: UploadedPhotoRecord) => {
+    if (record) {
+      setActiveShowcasePhoto(record);
+    } else if (uploadedRecords.length > 0) {
+      setActiveShowcasePhoto(uploadedRecords[0]);
+    }
+    setCurrentView('showcase');
+  };
+
   // Filter & Sort calculation
   const filteredAndSortedPhotos = useMemo(() => {
     let result = [...photos];
@@ -477,6 +529,31 @@ export default function App() {
     return <LoginView onLogin={handleLogin} isLoading={isLoggingIn} error={authError} />;
   }
 
+  // If in showcase view and photo is selected, render the dedicated separate showcase page
+  if (currentView === 'showcase' && activeShowcasePhoto) {
+    return (
+      <>
+        <PhotoShowcasePage
+          photo={activeShowcasePhoto}
+          allUploads={uploadedRecords}
+          onBackToGallery={() => setCurrentView('gallery')}
+          onSelectPhoto={(photo) => setActiveShowcasePhoto(photo)}
+          onOpenUploadModal={() => setIsUploadModalOpen(true)}
+          onDeleteRecord={handleDeleteUploadRecord}
+        />
+
+        <UploadModal
+          isOpen={isUploadModalOpen}
+          onClose={() => setIsUploadModalOpen(false)}
+          onSuccess={handleUploadSuccess}
+          onError={(msg) => addToast(msg, 'error')}
+        />
+
+        <ToastContainer toasts={toasts} onDismiss={removeToast} />
+      </>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col font-sans">
       <Navbar
@@ -485,6 +562,10 @@ export default function App() {
         onSearchChange={setSearchQuery}
         onRefresh={() => loadPhotos(false)}
         onLogout={handleLogout}
+        onOpenUpload={() => setIsUploadModalOpen(true)}
+        onViewShowcase={() => handleViewShowcase()}
+        currentView={currentView}
+        uploadedCount={uploadedRecords.length}
         isRefreshing={isRefreshing}
         totalPhotos={photos.length}
         publicPhotosCount={publicCount}
@@ -649,15 +730,25 @@ export default function App() {
                 Clear Search
               </button>
             ) : (
-              <a
-                href="https://photos.google.com"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition-colors"
-              >
-                <span>Open Google Photos</span>
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsUploadModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-5 py-2.5 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs transition-colors cursor-pointer"
+                >
+                  <Upload className="w-4 h-4" />
+                  <span>Upload or Import Photo Link</span>
+                </button>
+                <a
+                  href="https://photos.google.com"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl transition-colors"
+                >
+                  <span>Open Google Photos</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
             )}
           </div>
         )}
@@ -771,6 +862,14 @@ export default function App() {
 
       {/* Mandatory User Confirmation Modal for Destructive/Mutating Operations */}
       <ConfirmationModal {...confirmationConfig} />
+
+      {/* Upload & Link Import Modal */}
+      <UploadModal
+        isOpen={isUploadModalOpen}
+        onClose={() => setIsUploadModalOpen(false)}
+        onSuccess={handleUploadSuccess}
+        onError={(msg) => addToast(msg, 'error')}
+      />
 
       {/* Toast notifications */}
       <ToastContainer toasts={toasts} onDismiss={removeToast} />
